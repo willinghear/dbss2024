@@ -668,14 +668,14 @@ int ObMultipleMerge::get_next_aggregate_row(ObDatumRow *&row)
     }
     reuse_lob_locator();
     bool need_init_expr_header = true;
-    if (single_count_star_optimize_mode_) {
+    if (single_count_star_optimize_mode_) {//单个
       ObSSTable *major_table = reinterpret_cast<ObSSTable*>(tables_[0]);
       if (OB_FAIL(agg_row_store->fill_count(major_table->get_row_count()))) {
         STORAGE_LOG(WARN, "Failed to fill row count", K(ret), KPC(major_table));
       } else {
         ret = OB_ITER_END;
       }
-    } else {
+    } else {//多个
       while (OB_SUCC(ret) && !agg_row_store->is_end()) {
         bool can_batch = false;
         // clear evaluated flag for every row

@@ -80,7 +80,7 @@ protected:
       int64_t &row_count,
       const bool can_limit,
       const ObFilterResult &res);
-  IterEndState iter_end_flag_;
+  IterEndState iter_end_flag_;//结束标志
   int64_t batch_size_;
   int64_t row_capacity_;
   const char **cell_data_ptrs_;
