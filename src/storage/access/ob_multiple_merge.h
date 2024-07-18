@@ -133,7 +133,7 @@ protected:
   MergeIterators iters_;
   ObTableAccessParam *access_param_;
   ObTableAccessContext *access_ctx_;
-  common::ObSEArray<storage::ObITable *, common::DEFAULT_STORE_CNT_IN_STORAGE> tables_;
+  common::ObSEArray<storage::ObITable *, common::DEFAULT_STORE_CNT_IN_STORAGE> tables_;//
   blocksstable::ObDatumRow cur_row_;
   blocksstable::ObDatumRow unprojected_row_;
   int64_t curr_scan_index_;
