@@ -246,6 +246,7 @@ int ObTransformMinMax::deep_copy_subquery_for_aggr(const ObSelectStmt &copied_st
     ret = OB_ERR_UNEXPECTED;
     LOG_WARN("get unexpected table size or table item is null", K(ret), KPC(child_stmt));
   } else if (OB_FALSE_IT(table->qb_name_ = qb_name)) {
+    
   } else if (OB_FAIL(child_stmt->update_stmt_table_id(ctx_->allocator_, copied_stmt))) {
     LOG_WARN("failed to update stmt table id", K(ret));
   } else if (OB_FAIL(copied_stmt.get_select_exprs(select_exprs))) {
@@ -414,7 +415,7 @@ int ObTransformMinMax::is_valid_order_list(const ObSelectStmt &stmt, bool &is_va
   is_valid = valid;
   return ret;
 }
-
+//wait
 int ObTransformMinMax::is_valid_order_expr(const ObRawExpr *expr, bool &is_valid)
 {
   int ret = OB_SUCCESS;
@@ -436,7 +437,7 @@ int ObTransformMinMax::is_valid_order_expr(const ObRawExpr *expr, bool &is_valid
   is_valid = valid;
   return ret;
 }
-
+//wait
 int ObTransformMinMax::is_valid_index_column(ObTransformerCtx &ctx,
                                              const ObSelectStmt *stmt,
                                              const ObRawExpr *expr,
@@ -456,6 +457,7 @@ int ObTransformMinMax::is_valid_index_column(ObTransformerCtx &ctx,
   } else if (!expr->is_column_ref_expr()) {
     /* do nothing */
   } else if (OB_FALSE_IT(col_expr = static_cast<const ObColumnRefRawExpr *>(expr))) {
+
   } else if (OB_ISNULL(table_item = stmt->get_table_item_by_id(col_expr->get_table_id()))) {
     ret = OB_ERR_UNEXPECTED;
     LOG_WARN("table item is null", K(ret));
@@ -482,7 +484,7 @@ int ObTransformMinMax::is_valid_index_column(ObTransformerCtx &ctx,
   }
   return ret;
 }
-
+//wait
 int ObTransformMinMax::set_child_order_item(ObSelectStmt *stmt,
                                             ObRawExpr *aggr_param,
                                             ObItemType aggr_type)
@@ -510,7 +512,7 @@ int ObTransformMinMax::set_child_order_item(ObSelectStmt *stmt,
   }
   return ret;
 }
-
+//wait
 int ObTransformMinMax::set_child_condition(ObSelectStmt *stmt, ObRawExpr *aggr_param)
 {
   int ret = OB_SUCCESS;
