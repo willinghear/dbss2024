@@ -22,7 +22,6 @@
 #include "lib/hash/ob_hashset.h"
 #include "lib/time/ob_time_utility.h"
 #include "observer/ob_server_event_history_table_operator.h"
-#include "ob_storage_ha_src_provider.h"
 #include "storage/tablet/ob_tablet_iterator.h"
 #include "ob_storage_ha_utils.h"
 #include "storage/tablet/ob_tablet.h"
@@ -30,6 +29,7 @@
 #include "ob_rebuild_service.h"
 #include "share/ob_cluster_version.h"
 #include "ob_storage_ha_utils.h"
+#include "ob_storage_ha_src_provider.h"
 
 namespace oceanbase
 {
@@ -389,8 +389,9 @@ int ObMigrationDagNet::fill_comment(char *buf, const int64_t buf_len) const
   if (!is_inited_) {
     ret = OB_NOT_INIT;
     LOG_WARN("log stream migration dag net do not init ", K(ret));
-  } else if (OB_FAIL(ctx_->task_id_.to_string(task_id_str, MAX_TRACE_ID_LENGTH))) {
-    LOG_WARN("failed to trace task id to string", K(ret), K(*ctx_));
+  } else if (OB_UNLIKELY(0 > ctx_->task_id_.to_string(task_id_str, MAX_TRACE_ID_LENGTH))) {
+    ret = OB_BUF_NOT_ENOUGH;
+    LOG_WARN("failed to get trace id string", K(ret), K(*ctx_));
   } else if (OB_FAIL(databuff_printf(buf, buf_len,
           "ObLSMigrationDagNet: tenant_id=%s, ls_id=%s, migration_type=%d, trace_id=%s",
           to_cstring(ctx_->tenant_id_), to_cstring(ctx_->arg_.ls_id_), ctx_->arg_.type_, task_id_str))) {
@@ -1112,6 +1113,14 @@ int ObStartMigrationTask::deal_with_local_ls_()
       ctx_->local_rebuild_seq_ = local_ls_meta.get_rebuild_seq();
     }
   }
+#ifdef ERRSIM
+  if (OB_SUCC(ret) && !ctx_->local_clog_checkpoint_scn_.is_min()) {
+    SERVER_EVENT_ADD("storage_ha", "before_choose_source",
+                     "tenant_id", ctx_->tenant_id_,
+                     "ls_id", ctx_->arg_.ls_id_.id());
+    DEBUG_SYNC(BEFORE_CHOOSE_SOURCE);
+  }
+#endif
   return ret;
 }
 
@@ -1142,7 +1151,11 @@ int ObStartMigrationTask::report_ls_meta_table_()
 int ObStartMigrationTask::choose_src_()
 {
   int ret = OB_SUCCESS;
-  storage::ObStorageHASrcProvider src_provider;
+  ObStorageHAChooseSrcHelper choose_src_helper;
+  ObStorageHASrcProvider::ChooseSourcePolicy policy = ObStorageHASrcProvider::ChooseSourcePolicy::IDC;
+  const char *str = "idc";
+  ObStorageHAGetMemberHelper member_helper;
+  bool enable_choose_source_policy = true;
   if (!is_inited_) {
     ret = OB_NOT_INIT;
     LOG_WARN("start migration task do not init", K(ret));
@@ -1155,12 +1168,26 @@ int ObStartMigrationTask::choose_src_()
     ObStorageHASrcInfo src_info;
     obrpc::ObCopyLSInfo ls_info;
     SCN local_clog_checkpoint_scn = SCN::min_scn();
+    omt::ObTenantConfigGuard tenant_config(TENANT_CONF(tenant_id));
     if (OB_FAIL(get_local_ls_checkpoint_scn_(local_clog_checkpoint_scn))) {
       LOG_WARN("failed to get local ls checkpoint ts", K(ret));
-    } else if (OB_FAIL(src_provider.init(tenant_id, ctx_->arg_.type_, storage_rpc_))) {
-      LOG_WARN("failed to init src provider", K(ret), K(tenant_id), "type", ctx_->arg_.type_);
-    } else if (OB_FAIL(src_provider.choose_ob_src(ls_id, local_clog_checkpoint_scn, src_info))) {
-      LOG_WARN("failed to choose ob src", K(ret), K(tenant_id), K(ls_id), K(local_clog_checkpoint_scn));
+    } else if (!tenant_config.is_valid()) {
+      ret = OB_INVALID_ARGUMENT;
+      LOG_WARN("tenant config is invalid", K(ret));
+    } else if (FALSE_IT(str = tenant_config->choose_migration_source_policy.str())) {
+    } else if (FALSE_IT(enable_choose_source_policy = tenant_config->_enable_choose_migration_source_policy)) {
+    } else if (OB_FAIL(ObStorageHAChooseSrcHelper::get_policy_type(ctx_->arg_, tenant_id,
+        enable_choose_source_policy, str, policy))) {
+      LOG_WARN("failed to get policy type", K(ret), K(ctx_->arg_), K(tenant_id),
+          K(enable_choose_source_policy), K(str));
+    } else if (OB_FAIL(member_helper.init(storage_rpc_))) {
+      LOG_WARN("failed to init member helper", K(ret), KP(storage_rpc_));
+    } else if (OB_FAIL(choose_src_helper.init(tenant_id, ls_id, local_clog_checkpoint_scn, ctx_->arg_, policy,
+        storage_rpc_, &member_helper))) {
+      LOG_WARN("failed to init src provider.", K(ret), K(tenant_id), K(ls_id), K(local_clog_checkpoint_scn),
+          K(ctx_->arg_), K(policy), KP(storage_rpc_));
+    } else if (OB_FAIL(choose_src_helper.get_available_src(ctx_->arg_, src_info))) {
+      LOG_WARN("failed to choose ob src", K(ret), K(tenant_id), K(ls_id), K(local_clog_checkpoint_scn), K(ctx_->arg_));
     } else if (OB_FAIL(fetch_ls_info_(tenant_id, ls_id, src_info.src_addr_, ls_info))) {
       LOG_WARN("failed to fetch ls info", K(ret), K(tenant_id), K(ls_id), K(src_info));
     } else if (OB_FAIL(ObStorageHAUtils::check_server_version(ls_info.version_))) {
@@ -2392,10 +2419,18 @@ int ObTabletMigrationTask::process()
   LOG_INFO("start do tablet migration task", KPC(copy_tablet_ctx_));
   const int64_t start_ts = ObTimeUtility::current_time();
   ObCopyTabletStatus::STATUS status = ObCopyTabletStatus::MAX_STATUS;
+  int32_t result = OB_SUCCESS;
 
   if (OB_NOT_NULL(copy_tablet_ctx_)) {
     if (copy_tablet_ctx_->tablet_id_.is_inner_tablet() || copy_tablet_ctx_->tablet_id_.is_ls_inner_tablet()) {
     } else {
+#ifdef ERRSIM
+  if (OB_SUCC(ret) && is_inited_) {
+    SERVER_EVENT_ADD("storage_ha", "check_log_need_rebuild_before_migration_sstable",
+                     "tenant_id", ctx_->tenant_id_,
+                     "ls_id", ctx_->arg_.ls_id_.id());
+  }
+#endif
       DEBUG_SYNC(BEFORE_MIGRATION_TABLET_COPY_SSTABLE);
     }
   }
@@ -2405,11 +2440,22 @@ int ObTabletMigrationTask::process()
     LOG_WARN("tablet migration task do not init", K(ret), KPC(copy_tablet_ctx_));
   } else if (ctx_->is_failed()) {
     //do nothing
+  } else if (!copy_tablet_ctx_->tablet_id_.is_ls_inner_tablet()
+      && OB_FAIL(ObStorageHAUtils::check_log_status(ctx_->tenant_id_, ctx_->arg_.ls_id_, result))) {
+    LOG_WARN("failed to check if can replay log", K(ret), KPC(ctx_));
+  } else if (OB_SUCCESS != result) {
+    LOG_INFO("can not replay log, it will retry", K(result), KPC(ctx_));
+    if (OB_FAIL(ctx_->set_result(result/*result*/, true/*need_retry*/, this->get_dag()->get_type()))) {
+      LOG_WARN("failed to set result", K(ret), KPC(ctx_));
+    } else {
+      ret = result;
+      LOG_WARN("log sync or replay error, need retry", K(ret), KPC(ctx_));
+    }
   } else if (OB_FAIL(check_tablet_replica_validity_(copy_tablet_ctx_->tablet_id_))) {
     LOG_WARN("failed to check tablet replica validity", K(ret), KPC(copy_tablet_ctx_));
   } else if (OB_FAIL(try_update_tablet_())) {
     LOG_WARN("failed to try update tablet", K(ret), KPC(copy_tablet_ctx_));
-  } else if (OB_FAIL(OB_FAIL(copy_tablet_ctx_->get_copy_tablet_status(status)))) {
+  } else if (OB_FAIL(copy_tablet_ctx_->get_copy_tablet_status(status))) {
     LOG_WARN("failed to get copy tablet status", K(ret), KPC(copy_tablet_ctx_));
   } else if (ObCopyTabletStatus::TABLET_NOT_EXIST == status) {
     FLOG_INFO("copy tablet is not exist, skip copy it", KPC(copy_tablet_ctx_));
@@ -2474,6 +2520,8 @@ int ObTabletMigrationTask::generate_migration_tasks_()
     LOG_WARN("no need to generate minor task", K(ret), K(ctx_->arg_));
   } else if (OB_FAIL(generate_tablet_copy_finish_task_(tablet_copy_finish_task))) {
     LOG_WARN("failed to generate tablet copy finish task", K(ret), KPC(ctx_));
+  } else if (OB_FAIL(generate_mds_copy_tasks_(tablet_copy_finish_task, parent_task))) {
+    LOG_WARN("failed to generate migrate mds tasks", K(ret), K(*ctx_));
   } else if (OB_FAIL(generate_minor_copy_tasks_(tablet_copy_finish_task, parent_task))) {
     LOG_WARN("failed to generate migrate minor tasks", K(ret), K(*ctx_));
   } else if (OB_FAIL(generate_major_copy_tasks_(tablet_copy_finish_task, parent_task))) {
@@ -2980,12 +3028,31 @@ int ObTabletMigrationTask::check_tablet_replica_validity_(const common::ObTablet
   return ret;
 }
 
+int ObTabletMigrationTask::generate_mds_copy_tasks_(
+    ObTabletCopyFinishTask *tablet_copy_finish_task,
+    share::ObITask *&parent_task)
+{
+  int ret = OB_SUCCESS;
+
+  if (!is_inited_) {
+    ret = OB_NOT_INIT;
+    LOG_WARN("tablet migration task do not init", K(ret));
+  } else if (OB_ISNULL(tablet_copy_finish_task) || OB_ISNULL(parent_task)) {
+    ret = OB_INVALID_ARGUMENT;
+    LOG_WARN("generate minor task get invalid argument", K(ret), KP(tablet_copy_finish_task), KP(parent_task));
+  } else if (OB_FAIL(generate_copy_tasks_(ObITable::is_mds_sstable, tablet_copy_finish_task, parent_task))) {
+    LOG_WARN("failed to generate copy minor tasks", K(ret), KPC(copy_tablet_ctx_));
+  }
+  return ret;
+}
+
 /******************ObTabletFinishMigrationTask*********************/
 ObTabletFinishMigrationTask::ObTabletFinishMigrationTask()
   : ObITask(TASK_TYPE_MIGRATE_PREPARE),
     is_inited_(false),
     task_gen_time_(0),
     copy_table_count_(0),
+    ha_dag_net_ctx_(nullptr),
     copy_tablet_ctx_(nullptr),
     ls_(nullptr)
 {
@@ -3284,6 +3351,7 @@ int ObDataTabletsMigrationTask::process()
 {
   int ret = OB_SUCCESS;
   int tmp_ret = OB_SUCCESS;
+  int32_t result = OB_SUCCESS;
   LOG_INFO("start do data tablets migration task", K(ret), KPC(ctx_));
 #ifdef ERRSIM
   SERVER_EVENT_SYNC_ADD("storage_ha", "before_data_tablets_migration_task",
@@ -3303,6 +3371,16 @@ int ObDataTabletsMigrationTask::process()
     LOG_WARN("failed to add to learner list", K(ret));
   } else if (OB_FAIL(ls_online_())) {
     LOG_WARN("failed to start replay log", K(ret), K(*ctx_));
+  } else if (OB_FAIL(ObStorageHAUtils::check_log_status(ctx_->tenant_id_, ctx_->arg_.ls_id_, result))) {
+    LOG_WARN("failed to check log need rebuild", K(ret), KPC(ctx_));
+  } else if (OB_SUCCESS != result) {
+    LOG_INFO("can not replay log, it will retry", K(result), KPC(ctx_));
+    if (OB_FAIL(ctx_->set_result(result/*result*/, true/*need_retry*/, this->get_dag()->get_type()))) {
+      LOG_WARN("failed to set result", K(ret), KPC(ctx_));
+    } else {
+      ret = result;
+      LOG_WARN("log sync or replay error, need retry", K(ret), KPC(ctx_));
+    }
   } else if (OB_FAIL(build_tablet_group_info_())) {
     LOG_WARN("failed to build tablet group info", K(ret), KPC(ctx_));
   } else {

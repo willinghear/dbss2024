@@ -136,8 +136,13 @@ int ObS3Client::init_s3_client_configuration_(const ObS3Account &account,
 int ObS3Client::init(const ObS3Account &account)
 {
   int ret = OB_SUCCESS;
-  void *client_buf = NULL;
-  S3ClientConfiguration config;
+  void *client_buf = nullptr;
+  // Disables IMDS to prevent auto-region detection during construction.
+  ClientConfigurationInitValues init_values;
+  init_values.shouldDisableIMDS = true;
+  S3ClientConfiguration config(init_values);
+  // Re-enables IMDS access for subsequent operations if needed
+  config.disableIMDS = false;
   Aws::Auth::AWSCredentials credentials(account.access_id_, account.secret_key_);
   SpinWLockGuard guard(lock_);
   if (OB_UNLIKELY(is_inited_)) {
@@ -601,7 +606,11 @@ static void convert_http_error(const Aws::S3::S3Error &s3_err, int &ob_errcode)
       break;
     }
     default: {
-      ob_errcode = OB_S3_ERROR;
+      if (err_msg.find("curlCode: 28") != std::string::npos) {
+        ob_errcode = OB_TIMEOUT;
+      } else {
+        ob_errcode = OB_S3_ERROR;
+      }
       break;
     }
   }

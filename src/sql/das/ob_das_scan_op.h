@@ -17,6 +17,7 @@
 #include "sql/engine/basic/ob_chunk_datum_store.h"
 #include "sql/engine/table/ob_index_lookup_op_impl.h"
 #include "sql/das/ob_group_scan_iter.h"
+#include "sql/das/iter/ob_das_iter.h"
 
 namespace oceanbase
 {
@@ -49,7 +50,9 @@ public:
       trans_info_expr_(nullptr),
       ir_scan_type_(ObTSCIRScanType::OB_NOT_A_SPEC_SCAN),
       rowkey_exprs_(alloc),
-      table_scan_opt_()
+      table_scan_opt_(),
+      doc_id_idx_(-1),
+      vec_vid_idx_(-1)
   { }
   //in das scan op, column described with column expr
   virtual bool has_expr() const override { return true; }
@@ -108,6 +111,8 @@ public:
   ObTSCIRScanType ir_scan_type_; // specify retrieval scan type
   sql::ExprFixedArray rowkey_exprs_; // store rowkey exprs for index lookup
   ObTableScanOption table_scan_opt_;
+  int64_t doc_id_idx_;
+  int64_t vec_vid_idx_;
 };
 
 struct ObDASScanRtDef : ObDASBaseRtDef
@@ -202,6 +207,8 @@ public:
   storage::ObTableScanParam &get_scan_param() { return scan_param_; }
   const storage::ObTableScanParam &get_scan_param() const { return scan_param_; }
 
+  int init_related_tablet_ids(ObDASRelatedTabletID &related_tablet_ids);
+
   virtual int decode_task_result(ObIDASTaskResult *task_result) override;
   virtual int fill_task_result(ObIDASTaskResult &task_result, bool &has_more, int64_t &memory_limit) override;
   virtual int fill_extra_result() override;
@@ -221,7 +228,7 @@ public:
   const ObDASScanCtDef *get_lookup_ctdef() const;
   ObDASScanRtDef *get_lookup_rtdef();
   int get_aux_lookup_tablet_id(common::ObTabletID &tablet_id) const;
-  common::ObTabletID get_table_lookup_tablet_id() const;
+  int get_table_lookup_tablet_id(common::ObTabletID &tablet_id) const;
   int init_scan_param();
   int rescan();
   int reuse_iter();
@@ -230,8 +237,6 @@ public:
   bool is_contain_trans_info() {return NULL != scan_ctdef_->trans_info_expr_; }
   int do_table_scan();
   int do_domain_index_lookup();
-  int do_text_retrieve(common::ObNewRowIterator *&retrieval_iter);
-  int do_text_retrieve_rescan();
   int get_text_ir_tablet_ids(
       common::ObTabletID &inv_idx_tablet_id,
       common::ObTabletID &fwd_idx_tablet_id,
@@ -248,6 +253,7 @@ protected:
   int do_local_index_lookup();
   common::ObNewRowIterator *get_storage_scan_iter();
   common::ObNewRowIterator *get_output_result_iter() { return result_; }
+  ObDASIterTreeType get_iter_tree_type() const;
 public:
   ObSEArray<ObDatum *, 4> trans_info_array_;
 protected:
@@ -266,15 +272,18 @@ protected:
   storage::ObTableScanParam scan_param_;
   const ObDASScanCtDef *scan_ctdef_;
   ObDASScanRtDef *scan_rtdef_;
+  // result_ is actually a ObDASIter during execution
   common::ObNewRowIterator *result_;
   //Indicates the number of remaining rows currently that need to be sent through DTL
   int64_t remain_row_cnt_;
+  // only can be used in runner server
+  ObDASRelatedTabletID tablet_ids_;
 
   common::ObArenaAllocator *retry_alloc_;
   union {
     common::ObArenaAllocator retry_alloc_buf_;
   };
-  ObDASObsoletedObj ir_param_; // obsoleted attribute, please gc me at next barrier version
+  ObDASObsoletedObj ir_param_;   // FARM COMPAT WHITELIST: obsoleted attribute, please gc me at next barrier version
 };
 
 class ObDASScanResult : public ObIDASTaskResult, public common::ObNewRowIterator

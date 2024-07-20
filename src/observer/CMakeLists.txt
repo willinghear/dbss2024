@@ -6,7 +6,6 @@ ob_set_subtarget(ob_server ALONE
 ob_set_subtarget(ob_server common
   ob_dump_task_generator.cpp
   ob_heartbeat.cpp
-  ob_heartbeat_handler.cpp
   ob_inner_sql_rpc_proxy.cpp
   ob_inner_sql_rpc_processor.cpp
   ob_inner_sql_connection.cpp
@@ -173,9 +172,20 @@ ob_set_subtarget(ob_server table
   table/ttl/ob_table_ttl_executor.cpp
   table/ob_table_move_response.cpp
   table/ob_table_connection_mgr.cpp
+  table/redis/ob_redis_meta.cpp
 )
 
 ob_set_subtarget(ob_server table_load
+  table_load/backup/v_1_4/ob_table_load_backup_macro_block_meta_v_1_4.cpp
+  table_load/backup/v_1_4/ob_table_load_backup_macro_block_reader_v_1_4.cpp
+  table_load/backup/v_1_4/ob_table_load_backup_macro_block_scanner_v_1_4.cpp
+  table_load/backup/v_1_4/ob_table_load_backup_micro_block_scanner_v_1_4.cpp
+  table_load/backup/v_1_4/ob_table_load_backup_partition_scanner_v_1_4.cpp
+  table_load/backup/v_1_4/ob_table_load_backup_row_reader_v_1_4.cpp
+  table_load/backup/v_1_4/ob_table_load_backup_table_v_1_4.cpp
+  table_load/backup/v_1_4/ob_table_load_backup_util_v_1_4.cpp
+  table_load/backup/ob_table_load_backup_file_util.cpp
+  table_load/backup/ob_table_load_backup_table.cpp
   table_load/client/ob_table_direct_load_rpc_executor.cpp
   table_load/client/ob_table_direct_load_rpc_proxy.cpp
   table_load/client/ob_table_direct_load_rpc_struct.cpp
@@ -211,6 +221,7 @@ ob_set_subtarget(ob_server table_load
   table_load/ob_table_load_service.cpp
   table_load/ob_table_load_store_ctx.cpp
   table_load/ob_table_load_store_trans.cpp
+  table_load/ob_table_load_store_trans_px_writer.cpp
   table_load/ob_table_load_store.cpp
   table_load/ob_table_load_struct.cpp
   table_load/ob_table_load_table_compactor.cpp
@@ -431,6 +442,7 @@ ob_set_subtarget(ob_server virtual_table
   virtual_table/ob_all_virtual_storage_ha_error_diagnose.cpp
   virtual_table/ob_all_virtual_storage_ha_perf_diagnose.cpp
   virtual_table/ob_all_virtual_sys_variable_default_value.cpp
+  virtual_table/ob_all_virtual_tenant_scheduler_running_job.cpp
   virtual_table/ob_all_virtual_compatibility_control.cpp
 )
 
@@ -513,4 +525,14 @@ if (NOT CMAKE_BUILD_TYPE)
 else()
   set(BUILD_FLAGS "${CMAKE_BUILD_TYPE}" CACHE INTERNAL "build flags")
 endif()
+
+if (OB_ENABLE_BOLT)
+  add_custom_command(
+    OUTPUT observer_bolt
+    COMMAND ${CMAKE_SOURCE_DIR}/cmake/script/do_bolt_opt --build_dir=${CMAKE_BINARY_DIR}
+    DEPENDS observer)
+  add_custom_target(fake_custom_target ALL
+    DEPENDS observer_bolt)
+endif()
+
 configure_file(../share/ob_version.cpp.in ob_version.cpp)

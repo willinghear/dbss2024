@@ -330,11 +330,16 @@ enum ObIndexType
   // new index types for json multivalue index
   INDEX_TYPE_NORMAL_MULTIVALUE_LOCAL = 23,
   INDEX_TYPE_UNIQUE_MULTIVALUE_LOCAL = 24,
+  INDEX_TYPE_VEC_ROWKEY_VID_LOCAL = 25,
+  INDEX_TYPE_VEC_VID_ROWKEY_LOCAL = 26,
+  INDEX_TYPE_VEC_DELTA_BUFFER_LOCAL = 27,
+  INDEX_TYPE_VEC_INDEX_ID_LOCAL = 28,
+  INDEX_TYPE_VEC_INDEX_SNAPSHOT_DATA_LOCAL = 29,
   /*
   * Attention!!! when add new index type,
   * need update func ObSimpleTableSchemaV2::should_not_validate_data_index_ckm()
   */
-  INDEX_TYPE_MAX = 25,
+  INDEX_TYPE_MAX = 30,
 };
 
 // using type for index
@@ -692,6 +697,44 @@ inline bool is_fts_or_multivalue_index(ObIndexType index_type)
 inline bool is_fts_or_multivalue_index_aux(ObIndexType index_type)
 {
   return is_multivalue_index_aux(index_type) || is_fts_index_aux(index_type);
+}
+
+inline bool is_vec_rowkey_vid_type(const ObIndexType index_type)
+{
+  return index_type == INDEX_TYPE_VEC_ROWKEY_VID_LOCAL;
+}
+
+inline bool is_vec_vid_rowkey_type(const ObIndexType index_type)
+{
+  return index_type == INDEX_TYPE_VEC_VID_ROWKEY_LOCAL;
+}
+
+inline bool is_vec_delta_buffer_type(const ObIndexType index_type)
+{
+  return index_type == INDEX_TYPE_VEC_DELTA_BUFFER_LOCAL;
+}
+
+inline bool is_vec_index_id_type(const ObIndexType index_type)
+{
+  return index_type == INDEX_TYPE_VEC_INDEX_ID_LOCAL;
+}
+
+inline bool is_vec_index_snapshot_data_type(const ObIndexType index_type)
+{
+  return index_type == INDEX_TYPE_VEC_INDEX_SNAPSHOT_DATA_LOCAL;
+}
+
+inline bool is_built_in_vec_index(const ObIndexType index_type)
+{
+  return is_vec_rowkey_vid_type(index_type) ||
+         is_vec_vid_rowkey_type(index_type) ||
+         is_vec_delta_buffer_type(index_type) ||
+         is_vec_index_snapshot_data_type(index_type);
+}
+
+inline bool is_vec_index(const ObIndexType index_type)
+{
+  return is_vec_index_id_type(index_type) || is_built_in_vec_index(index_type);
 }
 
 inline bool is_index_local_storage(ObIndexType index_type)
@@ -6016,7 +6059,9 @@ public:
                        K_(reverse_cluster_name),
                        K_(reverse_tenant_name), K_(reverse_user_name),
                        K_(reverse_password), K_(plain_reverse_password),
-                       K_(reverse_host_addr));
+                       K_(reverse_host_addr),
+                       K_(host_name), K_(host_port),
+                       K_(reverse_host_name), K_(reverse_host_port));
 private:
   int dblink_encrypt(common::ObString &src, common::ObString &dst);
   int dblink_decrypt(common::ObString &src, common::ObString &dst);
@@ -6049,6 +6094,10 @@ protected:
   common::ObAddr reverse_host_addr_;  // used for reverse dblink
   common::ObString database_name_; // used for mysql dblink
   bool if_not_exist_; // used for mysql dblink
+  common::ObString host_name_; // ip string or domin name
+  int32_t host_port_;
+  common::ObString reverse_host_name_; // ip string or domin name
+  int32_t reverse_host_port_;
 };
 
 struct ObTenantDbLinkId
@@ -6150,7 +6199,9 @@ public:
          + reverse_user_name_.length() + 1
          + reverse_password_.length() + 1
          + plain_reverse_password_.length() + 1
-         + database_name_.length() + 1;
+         + database_name_.length() + 1
+         + host_name_.length() + 1
+         + reverse_host_name_.length() + 1;
   }
 };
 

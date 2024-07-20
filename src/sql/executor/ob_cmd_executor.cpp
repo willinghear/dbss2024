@@ -572,6 +572,8 @@ int ObCmdExecutor::execute(ObExecContext &ctx, ObICmd &cmd)
       }
       case stmt::T_REPAIR_TABLE:
       case stmt::T_CHECKSUM_TABLE:
+      case stmt::T_CACHE_INDEX:
+      case stmt::T_LOAD_INDEX_INTO_CACHE:
       case stmt::T_FLUSH_PRIVILEGES: {
         DEFINE_EXECUTE_CMD(ObMockStmt, ObMockExecutor);
         break;
@@ -1117,6 +1119,7 @@ int ObCmdExecutor::execute(ObExecContext &ctx, ObICmd &cmd)
       LOG_WARN("failed to get schema guard", K(ret));
     }
     if (OB_FAIL(tmp_ret)) {
+      // overwrite ret
       ret = tmp_ret;
     }
   }

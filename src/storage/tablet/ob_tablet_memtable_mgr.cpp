@@ -659,7 +659,6 @@ int ObTabletMemtableMgr::set_is_tablet_freeze_for_active_memtable(
     TRANS_LOG(INFO, "not set is_tablet_freeze because the memtable cannot be freezed", KPC(active_tablet_memtable));
   }
 
-
   return ret;
 }
 
@@ -754,7 +753,6 @@ int ObTabletMemtableMgr::release_head_memtable_(ObIMemtable *imemtable,
     const int64_t idx = get_memtable_idx(memtable_head_);
     int64_t occupy_size = 0;
     if (nullptr != tables_[idx] && memtable == tables_[idx]) {
-      LOG_INFO("release head memtable", K(ret), K(ls_id), KPC(memtable));
       ObMtStat& mt_stat = memtable->get_mt_stat();
       occupy_size = memtable->get_occupied_size();
       if (0 == mt_stat.release_time_) {
@@ -781,7 +779,7 @@ int ObTabletMemtableMgr::release_head_memtable_(ObIMemtable *imemtable,
         FLOG_INFO("allow active memtable to be freezed", K(ls_id), KPC(active_memtable));
       }
 
-      FLOG_INFO("succeed to release head data memtable", K(ret), K(ls_id), K(tablet_id_), K(occupy_size));
+      FLOG_INFO("succeed to release head data memtable", K(ret), K(occupy_size), KPC(memtable));
     }
   }
 
@@ -995,6 +993,7 @@ int ObTabletMemtableMgr::set_frozen_for_all_memtables()
         STORAGE_LOG(WARN, "memtable is nullptr", K(ret), K(ls_id), KP(memtable), K(i));
       } else {
         STORAGE_LOG(INFO, "set frozen for offline", K(ls_id), K(i), KPC(memtable));
+        memtable->set_offlined();
         memtable->set_frozen();
       }
     }

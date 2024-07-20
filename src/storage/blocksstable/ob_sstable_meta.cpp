@@ -362,16 +362,13 @@ DEFINE_GET_SERIALIZE_SIZE(ObSSTableBasicMeta)
   return len;
 }
 
-int ObSSTableBasicMeta::set_upper_trans_version(const int64_t upper_trans_version)
+void ObSSTableBasicMeta::set_upper_trans_version(const int64_t upper_trans_version)
 {
-  int ret = OB_SUCCESS;
-  const int64_t old_val = ATOMIC_LOAD(&upper_trans_version_);
-  // only set once
-  if (INT64_MAX == old_val && INT64_MAX != upper_trans_version) {
-    const int64_t new_val = std::max(upper_trans_version, max_merged_trans_version_);
-    ATOMIC_CAS(&upper_trans_version_, old_val, new_val);
+  if (INT64_MAX == max_merged_trans_version_) {
+    upper_trans_version_ = upper_trans_version;
+  } else {
+    upper_trans_version_ = std::max(upper_trans_version, max_merged_trans_version_);
   }
-  return ret;
 }
 
 //================================== ObTxDesc & ObTxContext ==================================
@@ -591,6 +588,7 @@ void ObSSTableMeta::reset()
   basic_meta_.reset();
   column_checksums_ = nullptr;
   column_checksum_count_ = 0;
+  cg_sstables_.reset();
   tx_ctx_.reset();
   is_inited_ = false;
 }

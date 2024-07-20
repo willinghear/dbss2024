@@ -217,6 +217,7 @@ public:
     TASK_TYPE_DDL_SPLIT_PREPARE = 61,
     TASK_TYPE_DDL_SPLIT_WRITE = 62,
     TASK_TYPE_DDL_SPLIT_MERGE = 63,
+    TASK_TYPE_TABLE_FINISH_BACKFILL = 64,
     TASK_TYPE_MAX,
   };
 
@@ -383,7 +384,7 @@ public:
       diagnose_type = ObDiagnoseTabletType::TYPE_TX_TABLE_MERGE;
     } else if (ObDagType::ObDagTypeEnum::DAG_TYPE_MDS_MINI_MERGE == type) {
       diagnose_type = ObDiagnoseTabletType::TYPE_MDS_MINI_MERGE;
-    } else if (ObDagType::ObDagTypeEnum::DAG_TYPE_BATCH_FREEZE_TABLETS) {
+    } else if (ObDagType::ObDagTypeEnum::DAG_TYPE_BATCH_FREEZE_TABLETS == type) {
       diagnose_type = ObDiagnoseTabletType::TYPE_BATCH_FREEZE;
     }
     return diagnose_type;
@@ -1202,9 +1203,9 @@ private:
   int64_t scheduled_dag_cnts_[ObDagType::DAG_TYPE_MAX]; // atomic value // interval scheduled dag count
   int64_t scheduled_task_cnts_[ObDagType::DAG_TYPE_MAX]; // atomic value // interval scheduled task count
   int64_t scheduled_data_size_[ObDagType::DAG_TYPE_MAX]; // atomic value // interval scheduled data size
+  common::ObThreadCond scheduler_sync_;  // Make sure the lock is inside if there are nested locks
   lib::MemoryContext mem_context_;
   lib::MemoryContext ha_mem_context_;
-  common::ObThreadCond scheduler_sync_;  // Make sure the lock is inside if there are nested locks
   ObDagPrioScheduler::WorkerList free_workers_; // free workers who have not been assigned to any task // locked by scheduler_sync_
   ObDagNetScheduler dag_net_sche_;
   ObDagPrioScheduler prio_sche_[ObDagPrio::DAG_PRIO_MAX];
@@ -1305,7 +1306,10 @@ int ObTenantDagScheduler::alloc_dag_with_priority(
 {
   int ret = OB_SUCCESS;
   dag = NULL;
-  if (prio < ObDagPrio::DAG_PRIO_COMPACTION_HIGH
+  if (IS_NOT_INIT) {
+    ret = OB_NOT_INIT;
+    COMMON_LOG(WARN, "ObTenantDagScheduler is not inited", K(ret));
+  } else if (prio < ObDagPrio::DAG_PRIO_COMPACTION_HIGH
      || prio >= ObDagPrio::DAG_PRIO_MAX) {
     ret = OB_INVALID_ARGUMENT;
     COMMON_LOG(WARN, "get invalid arg", K(ret), K(prio));
@@ -1339,8 +1343,8 @@ int ObTenantDagScheduler::create_and_add_dag_net(const ObIDagInitParam *param)
   T *dag_net = nullptr;
 
   if (IS_NOT_INIT) {
-    ret = common::OB_NOT_INIT;
-    COMMON_LOG(WARN, "scheduler is not init", K(ret));
+    ret = OB_NOT_INIT;
+    COMMON_LOG(WARN, "ObTenantDagScheduler is not inited", K(ret));
   } else {
     T tmp_dag_net;
     ObIAllocator &allocator = get_allocator(tmp_dag_net.is_ha_dag_net());
@@ -1398,7 +1402,10 @@ int ObTenantDagScheduler::create_and_add_dag(
 {
   int ret = common::OB_SUCCESS;
   T *dag = nullptr;
-  if (OB_FAIL(create_dag(param, dag))) {
+  if (IS_NOT_INIT) {
+    ret = OB_NOT_INIT;
+    COMMON_LOG(WARN, "ObTenantDagScheduler is not inited", K(ret));
+  } else if (OB_FAIL(create_dag(param, dag))) {
     COMMON_LOG(WARN, "failed to alloc dag", K(ret));
   } else if (OB_FAIL(add_dag(dag, emergency, check_size_overflow))) {
     if (common::OB_SIZE_OVERFLOW != ret && common::OB_EAGAIN != ret) {
@@ -1427,6 +1434,11 @@ inline bool is_compaction_dag(ObDagType::ObDagTypeEnum dag_type)
          ObDagType::DAG_TYPE_TX_TABLE_MERGE == dag_type ||
          ObDagType::DAG_TYPE_MDS_MINI_MERGE == dag_type ||
          ObDagType::DAG_TYPE_BATCH_FREEZE_TABLETS == dag_type;
+}
+
+inline bool is_ha_backfill_dag(const ObDagType::ObDagTypeEnum dag_type)
+{
+  return ObDagType::DAG_TYPE_TABLET_BACKFILL_TX == dag_type;
 }
 
 inline int dag_yield()

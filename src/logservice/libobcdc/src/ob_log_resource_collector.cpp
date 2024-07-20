@@ -590,7 +590,7 @@ int ObLogResourceCollector::handle(void *data,
       if (OB_ISNULL(task)) {
         LOG_ERROR("ObLogBR task is NULL");
         ret = OB_ERR_UNEXPECTED;
-      } else if (task->get_record_type(record_type)) {
+      } else if (OB_FAIL(task->get_record_type(record_type))) {
         LOG_ERROR("ObLogBR task get_record_type fail", KR(ret));
       } else {
         if (HEARTBEAT == record_type || EBEGIN == record_type || ECOMMIT == record_type) {
@@ -750,13 +750,14 @@ int ObLogResourceCollector::dec_ref_cnt_and_try_to_recycle_log_entry_task_(ObLog
     LOG_ERROR("part_trans_task is NULL", KPC(log_entry_task));
     ret = OB_ERR_UNEXPECTED;
   } else {
-    const int64_t row_ref_cnt = log_entry_task->dec_row_ref_cnt();
-    const bool need_revert_log_entry_task = (row_ref_cnt == 0);
-
     if (TCONF.test_mode_on) {
       // print while revert each row
-      LOG_INFO("revert_dml_binlog_record", KP(&br), K(br), KP(log_entry_task), K(need_revert_log_entry_task), KPC(log_entry_task));
+      // print before dec_row_ref_cnt in case of task recycled by other threads and LOG will coredump
+      LOG_INFO("revert_dml_binlog_record", KP(&br), K(br), KP(log_entry_task), KPC(log_entry_task));
     }
+
+    const int64_t row_ref_cnt = log_entry_task->dec_row_ref_cnt();
+    const bool need_revert_log_entry_task = (row_ref_cnt == 0);
 
     if (need_revert_log_entry_task) {
       if (OB_FAIL(revert_log_entry_task_(log_entry_task))) {

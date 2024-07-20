@@ -676,6 +676,7 @@ struct EstimateCostInfo {
       equal_cond_sel_(-1.0),
       other_cond_sel_(-1.0),
       contain_normal_nl_(false),
+      has_none_equal_join_(false),
       can_use_batch_nlj_(false),
       is_naaj_(false),
       is_sna_(false)
@@ -711,6 +712,7 @@ struct EstimateCostInfo {
         equal_cond_sel_(-1.0),
         other_cond_sel_(-1.0),
         contain_normal_nl_(false),
+        has_none_equal_join_(false),
         can_use_batch_nlj_(false),
         is_naaj_(false),
         is_sna_(false),
@@ -830,6 +832,8 @@ struct EstimateCostInfo {
     }
     bool contain_normal_nl() const { return contain_normal_nl_; }
     void set_contain_normal_nl(bool contain) { contain_normal_nl_ = contain; }
+    bool has_none_equal_join() const { return has_none_equal_join_; }
+    void set_has_none_equal_join(bool has) { has_none_equal_join_ = has; }
     int check_is_contain_normal_nl();
     virtual int compute_pipeline_info() override;
     virtual int get_name_internal(char *buf, const int64_t buf_len, int64_t &pos) const
@@ -941,6 +945,7 @@ struct EstimateCostInfo {
     double equal_cond_sel_;
     double other_cond_sel_;
     bool contain_normal_nl_;
+    bool has_none_equal_join_;
     bool can_use_batch_nlj_;
     bool is_naaj_; // is null aware anti join
     bool is_sna_; // is single null aware anti join
@@ -1095,10 +1100,12 @@ struct EstimateCostInfo {
   public:
     ValuesTablePath()
       : Path(NULL),
-        table_id_(OB_INVALID_ID) {}
+        table_id_(OB_INVALID_ID),
+        table_def_(NULL) {}
     virtual ~ValuesTablePath() { }
     int assign(const ValuesTablePath &other, common::ObIAllocator *allocator);
     virtual int estimate_cost() override;
+    virtual int estimate_row_count();
     virtual int get_name_internal(char *buf, const int64_t buf_len, int64_t &pos) const
     {
       int ret = OB_SUCCESS;
@@ -1109,6 +1116,7 @@ struct EstimateCostInfo {
     }
   public:
     uint64_t table_id_;
+    ObValuesTableDef *table_def_;
   private:
       DISALLOW_COPY_AND_ASSIGN(ValuesTablePath);
   };
@@ -1555,7 +1563,8 @@ struct NullAwareAntiJoinInfo {
                                         const common::ObIArray<ObRawExpr*> &predicates,
                                         ObIArray<ObExprConstraint> &expr_constraints,
                                         int64_t table_id,
-                                        ObQueryRange* &range);
+                                        ObQueryRange* &range,
+                                        int64_t index_id);
 
     int check_enable_better_inlist(int64_t table_id, bool &enable);
 
@@ -1920,6 +1929,7 @@ struct NullAwareAntiJoinInfo {
                                const common::ObIArray<ObRawExpr*> &on_conditions,
                                const common::ObIArray<ObRawExpr*> &where_conditions,
                                const bool has_equal_cond,
+                               const bool is_normal_nl,
                                bool need_mat = false);
 
     int create_and_add_hash_path(const Path *left_path,
@@ -2467,6 +2477,14 @@ struct NullAwareAntiJoinInfo {
                                          ObColumnRefRawExpr *col_expr,
                                          ObRawExpr *&new_qual);
 
+    int try_get_json_generated_col_index_expr(ObRawExpr *depend_expr,
+                                              ObColumnRefRawExpr *col_expr,
+                                              ObRawExprCopier& copier,
+                                              ObRawExprFactory& expr_factory,
+                                              ObSQLSessionInfo *session_info,
+                                              ObRawExpr *&qual,
+                                              int64_t qual_pos,
+                                              ObRawExpr *&new_qual);
     int get_range_params(const Path *path,
                          ObIArray<ObRawExpr*> &range_exprs,
                          ObIArray<ObRawExpr*> &all_table_filters);

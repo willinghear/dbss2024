@@ -698,8 +698,8 @@ int ObSelectLogPlan::create_rollup_pushdown_plan(const ObIArray<ObRawExpr*> &gro
   } else if (OB_ISNULL(rollup_collector = dynamic_cast<ObLogGroupBy *>(top))) {
     ret = OB_ERR_UNEXPECTED;
     LOG_WARN("rollup collector is null", K(ret));
-  } else if (rollup_collector->set_rollup_info(ObRollupStatus::ROLLUP_COLLECTOR,
-                                                        groupby_helper.rollup_id_expr_)) {
+  } else if (OB_FAIL(rollup_collector->set_rollup_info(ObRollupStatus::ROLLUP_COLLECTOR,
+                                                       groupby_helper.rollup_id_expr_))) {
     LOG_WARN("failed to set rollup id expr", K(ret));
   } else {
     rollup_collector->set_group_by_outline_info(false, true);
@@ -2940,9 +2940,13 @@ int ObSelectLogPlan::get_distributed_set_methods(const EqualSets &equal_sets,
     set_dist_methods &= DIST_PULL_TO_LOCAL | DIST_BASIC_METHOD;
   }
   if (OB_SUCC(ret) && (set_dist_methods & DistAlgo::DIST_NONE_ALL)) {
+    bool is_compatible = false;
     if (left_sharding->is_distributed() && right_sharding->is_match_all() &&
         !right_child.get_contains_das_op() && !right_child.get_contains_fake_cte() &&
-        ObSelectStmt::UNION != set_op) {
+        (ObSelectStmt::INTERSECT == set_op || ObSelectStmt::EXCEPT == set_op) &&
+        OB_FAIL(left_child.check_sharding_compatible_with_reduce_expr(left_set_keys, is_compatible))) {
+      LOG_WARN("failed to check sharding compatible with reduce expr", K(ret));
+    } else if (is_compatible) {
       set_dist_methods = DistAlgo::DIST_NONE_ALL;
     } else {
       set_dist_methods &= ~DistAlgo::DIST_NONE_ALL;
@@ -2950,9 +2954,13 @@ int ObSelectLogPlan::get_distributed_set_methods(const EqualSets &equal_sets,
   }
 
   if (OB_SUCC(ret) && (set_dist_methods & DistAlgo::DIST_ALL_NONE)) {
+    bool is_compatible = false;
     if (right_sharding->is_distributed() && left_sharding->is_match_all() &&
         !left_child.get_contains_das_op() && !left_child.get_contains_fake_cte() &&
-        ObSelectStmt::UNION != set_op) {
+        ObSelectStmt::INTERSECT == set_op &&
+        OB_FAIL(right_child.check_sharding_compatible_with_reduce_expr(right_set_keys, is_compatible))) {
+      LOG_WARN("failed to check sharding compatible with reduce expr", K(ret));
+    } else if (is_compatible) {
       set_dist_methods = DistAlgo::DIST_ALL_NONE;
     } else {
       set_dist_methods &= ~DistAlgo::DIST_ALL_NONE;
@@ -6523,7 +6531,7 @@ int ObSelectLogPlan::sort_window_functions(const ObFdItemSet &fd_item_set,
   }
   if (OB_SUCC(ret)) {
     std::pair<int64_t, int64_t> *first = &expr_entries.at(0);
-    std::sort(first, first + expr_entries.count());
+    lib::ob_sort(first, first + expr_entries.count());
     for (int64_t i = 0; OB_SUCC(ret) && i < expr_entries.count(); ++i) {
       ordering_changed |= i != expr_entries.at(i).second;
       if (OB_FAIL(ordered_win_func_exprs.push_back(win_func_exprs.at(expr_entries.at(i).second)))) {

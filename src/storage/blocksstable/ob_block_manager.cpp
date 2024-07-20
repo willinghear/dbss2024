@@ -196,6 +196,9 @@ int ObBlockManager::start(const int64_t reserved_size)
   opts.opt_cnt_ = 1;
   opts.opts_ = &(opt);
   opt.set("reserved size", reserved_size);
+  LOG_DBA_INFO_V2(OB_SERVER_BLOCK_MANAGER_START_BEGIN,
+                  DBA_STEP_INC_INFO(server_start),
+                  "block manager start begin.");
 
   if (IS_NOT_INIT) {
     ret = OB_NOT_INIT;
@@ -244,6 +247,17 @@ int ObBlockManager::start(const int64_t reserved_size)
       LOG_INFO("start block manager", K(need_format));
     }
   }
+  if (OB_FAIL(ret)) {
+    LOG_DBA_ERROR_V2(OB_SERVER_BLOCK_MANAGER_START_FAIL, ret,
+                     DBA_STEP_INC_INFO(server_start),
+                     "block manager start fail. ",
+                     "you may find solutions in previous error logs or seek help from official technicians.");
+  } else {
+    LOG_DBA_INFO_V2(OB_SERVER_BLOCK_MANAGER_START_SUCCESS,
+                    DBA_STEP_INC_INFO(server_start),
+                    "block manager start success.");
+  }
+
   return ret;
 }
 
@@ -976,10 +990,6 @@ void ObBlockManager::mark_and_sweep()
     LOG_WARN("block manager not init", K(ret));
   } else if (!is_mark_sweep_enabled()) {
     LOG_INFO("mark and sweep is disabled, do not mark and sweep this round");
-  } else if (!ObServerCheckpointSlogHandler::get_instance().is_started()) {
-    if (REACH_TIME_INTERVAL(10 * 1000 * 1000 /* 10s */)) {
-      LOG_WARN("slog replay hasn't finished, this task can't start", K(ret));
-    }
   } else {
     if (OB_FAIL(mark_info.init(ObModIds::OB_STORAGE_FILE_BLOCK_REF, OB_SERVER_TENANT_ID))) {
       LOG_WARN("fail to init mark info, ", K(ret));
@@ -1150,7 +1160,7 @@ int ObBlockManager::mark_tenant_blocks(
         } else {
           LOG_WARN("fail to get next in-memory tablet", K(ret));
         }
-      } else if (handle.get_obj()->is_old_tablet()) {
+      } else if (handle.get_obj()->get_version() < ObTabletBlockHeader::TABLET_VERSION_V3) {
         if (OB_FAIL(mark_tablet_meta_blocks(mark_info, handle, macro_id_set, tmp_status))) {
           LOG_WARN("fail to mark tablet meta blocks", K(ret));
         } else if (OB_FAIL(mark_sstable_blocks(mark_info, handle, macro_id_set, tmp_status))) {
@@ -1570,7 +1580,10 @@ int ObBlockManager::set_group_id(const uint64_t tenant_id)
       LOG_WARN("fail to get group id by function", K(ret), K(tenant_id), K(consumer_group_id));
     } else if (consumer_group_id != group_id_) {
       // for CPU isolation, depend on cgroup
-      if (OB_NOT_NULL(GCTX.cgroup_ctrl_) && GCTX.cgroup_ctrl_->is_valid() && OB_FAIL(GCTX.cgroup_ctrl_->add_self_to_group(tenant_id, consumer_group_id))) {
+      if (OB_NOT_NULL(GCTX.cgroup_ctrl_) && GCTX.cgroup_ctrl_->is_valid() &&
+          OB_FAIL(GCTX.cgroup_ctrl_->add_self_to_cgroup(tenant_id,
+              consumer_group_id,
+              GCONF.enable_global_background_resource_isolation ? BACKGROUND_CGROUP : ""))) {
         LOG_WARN("bind back thread to group failed", K(ret), K(GETTID()), K(tenant_id), K(consumer_group_id));
       }
     }

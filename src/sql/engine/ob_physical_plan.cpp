@@ -140,7 +140,12 @@ ObPhysicalPlan::ObPhysicalPlan(MemoryContext &mem_context /* = CURRENT_CONTEXT *
     udf_has_dml_stmt_(false),
     mview_ids_(&allocator_),
     enable_inc_direct_load_(false),
-    enable_replace_(false)
+    enable_replace_(false),
+    insert_overwrite_(false),
+    online_sample_percent_(1.),
+    can_set_feedback_info_(true),
+    need_switch_to_table_lock_worker_(false),
+    data_complement_gen_doc_id_(false)
 {
 }
 
@@ -240,6 +245,11 @@ void ObPhysicalPlan::reset()
   mview_ids_.reset();
   enable_inc_direct_load_ = false;
   enable_replace_ = false;
+  insert_overwrite_ = false;
+  online_sample_percent_ = 1.;
+  can_set_feedback_info_.store(true);
+  need_switch_to_table_lock_worker_ = false;
+  data_complement_gen_doc_id_ = false;
 }
 void ObPhysicalPlan::destroy()
 {
@@ -812,7 +822,11 @@ OB_SERIALIZE_MEMBER(ObPhysicalPlan,
                     mview_ids_,
                     enable_inc_direct_load_,
                     enable_replace_,
-                    immediate_refresh_external_table_ids_);
+                    immediate_refresh_external_table_ids_,
+                    insert_overwrite_,
+                    online_sample_percent_,
+                    need_switch_to_table_lock_worker_,
+                    data_complement_gen_doc_id_);
 
 int ObPhysicalPlan::set_table_locations(const ObTablePartitionInfoArray &infos,
                                         ObSchemaGetterGuard &schema_guard)
@@ -1228,7 +1242,8 @@ int ObPhysicalPlan::update_cache_obj_stat(ObILibCacheCtx &ctx)
     stat_.outline_id_ = get_outline_state().outline_version_.object_id_;
     // Truncate the raw sql to avoid the plan memory being too large due to the long raw sql
     ObTruncatedString trunc_raw_sql(pc_ctx.raw_sql_, OB_MAX_SQL_LENGTH);
-    if (OB_FAIL(pc_ctx.get_not_param_info_str(get_allocator(), stat_.sp_info_str_))) {
+    if (OB_FAIL(ret)) {
+    } else if (OB_FAIL(pc_ctx.get_not_param_info_str(get_allocator(), stat_.sp_info_str_))) {
       SQL_PC_LOG(WARN, "fail to get special param info string", K(ret));
     } else if (OB_FAIL(ob_write_string(get_allocator(),
                                        pc_ctx.fp_result_.pc_key_.sys_vars_str_,
@@ -1256,6 +1271,7 @@ int ObPhysicalPlan::update_cache_obj_stat(ObILibCacheCtx &ctx)
                     get_allocator().alloc(get_access_table_num() * sizeof(ObTableRowCount))))) {
         // @banliu.zyd: 这块内存存放计划涉及的表的行数，用于统计信息已经过期的计划的淘汰，分配失败时
         //              不报错，走原来不淘汰计划的逻辑
+        // ignore ret
         LOG_WARN("allocate memory for table row count list failed", K(get_access_table_num()));
       } else {
         for (int64_t i = 0; i < get_access_table_num(); ++i) {
@@ -1399,6 +1415,13 @@ int ObPhysicalPlan::set_all_local_session_vars(ObIArray<ObLocalSessionVar> *all_
     }
   }
   return ret;
+}
+
+bool ObPhysicalPlan::try_record_plan_info()
+{
+  bool expected = true;
+  bool b_ret = can_set_feedback_info_.compare_exchange_strong(expected, false);
+  return b_ret;
 }
 
 } //namespace sql

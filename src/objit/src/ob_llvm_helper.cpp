@@ -125,7 +125,10 @@ static ObGetIRType OB_IR_TYPE[common::ObMaxType + 1] =
   NULL,                                                    //49.ObUserDefinedSQLType
   NULL,                                                    //50. ObDecimalIntType
   NULL,                                                    //51.ObCollectionSQLType
-  NULL,                                                    //52.ObMaxType
+  reinterpret_cast<ObGetIRType>(ObIRType::getInt32Ty),     //52.ObMySQLDateType
+  reinterpret_cast<ObGetIRType>(ObIRType::getInt64Ty),     //53.ObMySQLDateTimeType
+  NULL,                                                    //54.ObRoaringBitmapType
+  NULL,                                                    //55.ObMaxType
 };
 
 template<typename T, int64_t N>
@@ -646,23 +649,6 @@ void ObLLVMHelper::dump_debuginfo()
   }
 }
 
-int ObLLVMHelper::verify_function(ObLLVMFunction &function)
-{
-  OB_LLVM_MALLOC_GUARD(GET_PL_MOD_STRING(pl::OB_PL_CODE_GEN));
-  int ret = OB_SUCCESS;
-  if (OB_ISNULL(jc_)) {
-    ret = OB_NOT_INIT;
-    LOG_WARN("jc is NULL", K(ret));
-  } else if (OB_ISNULL(function.get_v())) {
-    ret = OB_INVALID_ARGUMENT;
-    LOG_WARN("value is NULL", K(ret));
-  } else if (verifyFunction(*function.get_v())) {
-    ret = OB_ERR_UNEXPECTED;
-    LOG_WARN("failed to verify function", K(ret));
-  } else { /*do nothing*/ }
-  return ret;
-}
-
 int ObLLVMHelper::verify_module()
 {
   OB_LLVM_MALLOC_GUARD(GET_PL_MOD_STRING(pl::OB_PL_CODE_GEN));
@@ -676,6 +662,11 @@ int ObLLVMHelper::verify_module()
     ret = OB_ERR_UNEXPECTED;
     LOG_WARN("failed to verify function", K(ret), K(verify_error.c_str()));
   } else { /*do nothing*/ }
+
+  // always reset Builder
+  if (OB_NOT_NULL(jc_)) {
+    jc_->Builder.reset();
+  }
   return ret;
 }
 

@@ -712,6 +712,8 @@ public:
   int get_influence_plan_sys_var(ObSysVarInPC &sys_vars) const;
   const common::ObString &get_sys_var_in_pc_str() const { return sys_var_in_pc_str_; }
   const common::ObString &get_config_in_pc_str() const { return config_in_pc_str_; }
+  uint64_t get_sys_var_config_hash_val() const { return sys_var_config_hash_val_; }
+  void eval_sys_var_config_hash_val();
   int gen_sys_var_in_pc_str();
   int gen_configs_in_pc_str();
   uint32_t get_sessid() const { return sessid_; }
@@ -1358,6 +1360,7 @@ public:
 
   bool has_explicit_start_trans() const { return tx_desc_ != NULL && tx_desc_->is_explicit(); }
   bool is_in_transaction() const { return tx_desc_ != NULL && tx_desc_->is_in_tx(); }
+  bool has_active_autocommit_trans(transaction::ObTransID &trans_id);
   virtual bool is_txn_free_route_temp() const { return false; }
   bool get_in_transaction() const { return is_in_transaction(); }
   uint64_t get_trans_flags() const { return trans_flags_.get_flags(); }
@@ -1417,6 +1420,7 @@ public:
   int get_compatibility_version(uint64_t &compat_version) const;
   int get_security_version(uint64_t &security_version) const;
   int check_feature_enable(const share::ObCompatFeatureType feature_type, bool &is_enable) const;
+  void trace_all_sys_vars() const;
 protected:
   int process_session_variable(share::ObSysVarClassType var, const common::ObObj &value,
                                const bool check_timezone_valid = true,
@@ -1678,8 +1682,8 @@ public:
         enable_rich_vector_format_(false),
         ncharacter_set_connection_(ObCharsetType::CHARSET_INVALID),
         compat_type_(share::ObCompatType::COMPAT_MYSQL57),
-        compat_version_(0)
-
+        compat_version_(0),
+        enable_sql_plan_monitor_(false)
     {
       for (int64_t i = 0; i < ObNLSFormatEnum::NLS_MAX; ++i) {
         MEMSET(nls_formats_buf_[i], 0, MAX_NLS_FORMAT_STR_LEN);
@@ -1744,6 +1748,7 @@ public:
       default_lob_inrow_threshold_ = OB_DEFAULT_LOB_INROW_THRESHOLD;
       compat_type_ = share::ObCompatType::COMPAT_MYSQL57;
       compat_version_ = 0;
+      enable_sql_plan_monitor_ = false;
     }
 
     inline bool operator==(const SysVarsCacheData &other) const {
@@ -1975,6 +1980,8 @@ public:
     ObCharsetType ncharacter_set_connection_;
     share::ObCompatType compat_type_;
     uint64_t compat_version_;
+    // No use. Placeholder.
+    bool enable_sql_plan_monitor_;
   private:
     char nls_formats_buf_[ObNLSFormatEnum::NLS_MAX][MAX_NLS_FORMAT_STR_LEN];
   };
@@ -2092,6 +2099,7 @@ private:
     DEF_SYS_VAR_CACHE_FUNCS(int64_t, default_lob_inrow_threshold);
     DEF_SYS_VAR_CACHE_FUNCS(share::ObCompatType, compat_type);
     DEF_SYS_VAR_CACHE_FUNCS(uint64_t, compat_version);
+    DEF_SYS_VAR_CACHE_FUNCS(bool, enable_sql_plan_monitor);
     void set_autocommit_info(bool inc_value)
     {
       inc_data_.autocommit_ = inc_value;
@@ -2165,6 +2173,7 @@ private:
         bool inc_ob_enable_pl_cache_:1;
         bool inc_compat_type_:1;
         bool inc_compat_version_:1;
+        bool inc_enable_sql_plan_monitor_:1;
       };
     };
   };
@@ -2417,6 +2426,7 @@ private:
   bool config_use_rich_format_;
 
   common::ObSEArray<uint64_t, 4> enable_role_ids_;
+  uint64_t sys_var_config_hash_val_;
 };
 
 

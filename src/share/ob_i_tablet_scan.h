@@ -266,9 +266,14 @@ ObVTableScanParam() :
       pd_storage_filters_(nullptr),
       pd_storage_flag_(false),
       row2exprs_projector_(NULL),
+      table_scan_opt_(),
       ext_file_column_exprs_(NULL),
       ext_column_convert_exprs_(NULL),
-      schema_guard_(NULL)
+      schema_guard_(NULL),
+      auto_split_filter_type_(OB_INVALID_ID),
+      auto_split_filter_(NULL),
+      auto_split_params_(NULL),
+      is_tablet_spliting_(false)
   { }
 
   virtual ~ObVTableScanParam()
@@ -340,6 +345,7 @@ ObVTableScanParam() :
   int32_t pd_storage_flag_;
   // project storage output row to %output_exprs_
   storage::ObRow2ExprsProjector *row2exprs_projector_;
+  ObTableScanOption table_scan_opt_;
 
   // external table
   const sql::ExprFixedArray *ext_file_column_exprs_;
@@ -385,6 +391,12 @@ private:
   // New schema, used throughout the life cycle of table_scan
   share::schema::ObSchemaGetterGuard *schema_guard_;
   char schema_guard_buf_[sizeof(share::schema::ObSchemaGetterGuard)];
+
+public:
+  uint64_t auto_split_filter_type_;
+  const sql::ObExpr *auto_split_filter_;
+  sql::ExprFixedArray *auto_split_params_;
+  bool is_tablet_spliting_;
 };
 
 class ObITabletScan

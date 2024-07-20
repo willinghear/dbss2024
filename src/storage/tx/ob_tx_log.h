@@ -417,7 +417,7 @@ public:
         TRANS_LOG(WARN, "alloc memory failed", K(ret), KPC(this), KPC(ddl_log));
       } else if (OB_FALSE_IT(memset(submit_buf_, 0, dli_buf_size_))) {
         // do nothing
-      } else if (ddl_log->serialize(static_cast<char *>(submit_buf_), dli_buf_size_, pos)) {
+      } else if (OB_FAIL(ddl_log->serialize(static_cast<char *>(submit_buf_), dli_buf_size_, pos))) {
         TRANS_LOG(WARN, "serialize ddl log buf failed", K(ret), KPC(this), KPC(ddl_log));
       }
 
@@ -658,7 +658,7 @@ class ObTxActiveInfoLog
 
 public:
   ObTxActiveInfoLog(ObTxActiveInfoLogTempRef &temp_ref)
-      : scheduler_(temp_ref.scheduler_), trans_type_(TransType::SP_TRANS), session_id_(0),
+      : scheduler_(temp_ref.scheduler_), trans_type_(TransType::SP_TRANS), session_id_(0), associated_session_id_(0),
         app_trace_id_str_(temp_ref.app_trace_id_str_), schema_version_(0), can_elr_(false),
         proposal_leader_(temp_ref.proposal_leader_), cur_query_start_time_(0), is_sub2pc_(false),
         is_dup_tx_(false), tx_expired_time_(0), epoch_(0), last_op_sn_(0), first_seq_no_(),
@@ -670,6 +670,7 @@ public:
   ObTxActiveInfoLog(common::ObAddr &scheduler,
                     int trans_type,
                     int session_id,
+                    uint32_t associated_session_id,
                     common::ObString &app_trace_id_str,
                     int64_t schema_version,
                     bool elr,
@@ -687,6 +688,7 @@ public:
                     const ObXATransID &xid,
                     ObTxSEQ serial_final_seq_no)
       : scheduler_(scheduler), trans_type_(trans_type), session_id_(session_id),
+        associated_session_id_(associated_session_id),
         app_trace_id_str_(app_trace_id_str), schema_version_(schema_version), can_elr_(elr),
         proposal_leader_(proposal_leader), cur_query_start_time_(cur_query_start_time),
         is_sub2pc_(is_sub2pc), is_dup_tx_(is_dup_tx), tx_expired_time_(tx_expired_time),
@@ -700,6 +702,7 @@ public:
   const common::ObAddr &get_scheduler() const { return scheduler_; }
   int get_trans_type() const { return trans_type_; }
   int get_session_id() const { return session_id_; }
+  int get_associated_session_id() const { return associated_session_id_; }
   const common::ObString &get_app_trace_id() const { return app_trace_id_str_; }
   const int64_t &get_schema_version() { return schema_version_; }
   bool is_elr() const { return can_elr_; }
@@ -724,6 +727,7 @@ public:
                K(scheduler_),
                K(trans_type_),
                K(session_id_),
+               K(associated_session_id_),
                K(app_trace_id_str_),
                K(schema_version_),
                K(can_elr_),
@@ -749,6 +753,7 @@ private:
   common::ObAddr &scheduler_;
   int trans_type_;
   int session_id_;
+  uint32_t associated_session_id_;
   common::ObString &app_trace_id_str_;
   int64_t schema_version_;
   bool can_elr_;
@@ -1412,6 +1417,7 @@ private:
     int ret = OB_ALLOCATE_MEMORY_FAILED;
     char *ptr = NULL;
     if (OB_ISNULL(ptr = static_cast<char *>(ob_malloc(NORMAL_LOG_BUF_SIZE, "NORMAL_CLOG_BUF")))) {
+      ret = OB_ALLOCATE_MEMORY_FAILED;
       TRANS_LOG(WARN, "alloc clog normal buffer failed", K(ret));
     }
     return ptr;
@@ -1421,6 +1427,7 @@ private:
     int ret = OB_ALLOCATE_MEMORY_FAILED;
     char *ptr = NULL;
     if (OB_ISNULL(ptr = static_cast<char *>(ob_malloc(BIG_LOG_BUF_SIZE, "BIG_CLOG_BUF")))) {
+      ret = OB_ALLOCATE_MEMORY_FAILED;
       TRANS_LOG(WARN, "alloc clog big buffer failed", K(ret));
     }
     return ptr;
