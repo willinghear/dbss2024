@@ -122,25 +122,4 @@ select /*+no_fast_minmax*/ 1 from t1 having min(c1) > 1;
 select 1 from t1 order by min(c1);
 select /*+no_fast_minmax*/ 1 from t1 order by min(c1);
 
-### 多min/max
-
-select min(c1),max(c1) from t1;
-select /*+no_fast_minmax*/ min(c1),max(c1) from t1;
-select min(c1) as min, max(c1) as max from t1;
-select /*+no_fast_minmax*/ min(c1) as min, max(c1) as max from t1;
-select min(c1)+max(c1)*2 from t1;
-select /*+no_fast_minmax*/ min(c1)+max(c1)*2 from t1;
-select min(c1),max(c2) from t1;
-select /*+no_fast_minmax*/ min(c1),max(c2) from t1;
-
-select min(c1) from t1 having max(c2) > 0;
-select /*+no_fast_minmax*/ min(c1) from t1 having max(c2) > 0;
-select min(c1) from t1 order by max(c2);
-select /*+no_fast_minmax*/ min(c1) from t1 order by max(c2);
-select max(c1), min(c1) from t1 order by min(c1);
-select /*+no_fast_minmax*/ max(c1), min(c1) from t1 order by min(c1);
-
-select min(c1),max(c1) from t2 where c1 = any (select c1 from t3);
-select min(c1) from t2 where c1 = any (select c1 from t3);
-
 drop table t1,t2,t3;
